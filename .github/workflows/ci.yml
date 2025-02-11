@@ -1,8 +1,11 @@
-name: Merge Back Hotfix and PHPUnit with Coverage Check
+name: CI/CD & Merge Back Hotfix
 
 on:
   pull_request:
-    types: [opened, edited, closed]  # Inclui os tipos de eventos necessários
+  pull_request:
+    types: [closed]
+    branches:
+      - master
 
 permissions:
   contents: write
@@ -10,7 +13,6 @@ permissions:
 
 jobs:
   test:
-    if: github.event.action != 'closed'  # Só roda o job de teste se a ação não for 'closed'
     runs-on: ubuntu-latest
 
     steps:
@@ -87,14 +89,15 @@ jobs:
             - **Execution Time:** ${{ env.execution_time }} seconds
 
       - name: Validate test failures
-        if: always()
+        if: always() 
         run: |
           if [ ${{ env.failures }} -gt 0 ]; then
               echo "Existem falhas nos testes: ${{ env.failures }}"
               exit 1
+          fi
 
   merge-back:
-    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/')
+    if: ${{ github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout do código
@@ -104,7 +107,7 @@ jobs:
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          
+
       - name: Criar Pull Request da master para dev
         id: create_pr
         run: |
