@@ -1,4 +1,4 @@
-name: CI/CD & Merge Back Hotfix
+name: CI/CD Workflow
 
 on:
   pull_request:
@@ -12,27 +12,29 @@ permissions:
   pull-requests: write
 
 jobs:
-  test:
+  # ------------------------- JOB 1: TESTES COM PHPUNIT -------------------------
+  tests:
+    name: Executar Testes e Verificar Cobertura
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout do código
         uses: actions/checkout@v3
 
-      - name: Set up PHP
+      - name: Configurar PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
           extensions: xdebug
 
-      - name: Install dependencies
+      - name: Instalar dependências do Composer
         run: composer install
 
-      - name: Run PHPUnit tests with coverage
+      - name: Executar PHPUnit com cobertura
         run: |
           vendor/bin/phpunit --coverage-clover=coverage.xml --log-junit=junit.xml
 
-      - name: Extract coverage
+      - name: Extrair cobertura de código
         id: coverage_check
         run: |
           COVERAGE=$(php -r "
@@ -48,7 +50,7 @@ jobs:
           echo "COVERAGE=$COVERAGE" >> $GITHUB_ENV
           echo "Cobertura calculada: $COVERAGE%"
 
-      - name: Parse junit.xml
+      - name: Processar resultados de junit.xml
         id: parse_junit
         run: |
           TESTS=$(php -r "
@@ -73,14 +75,14 @@ jobs:
           echo "skipped=$SKIPPED" >> $GITHUB_ENV
           echo "execution_time=$TIME" >> $GITHUB_ENV
 
-      - name: Post test results
+      - name: Publicar resultados dos testes na PR
         uses: peter-evans/create-or-update-comment@v2
         with:
           token: ${{ secrets.PAT_TOKEN }}
           repository: ${{ github.repository }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            ### PHPUnit Test Coverage Report 
+            ### 🧪 PHPUnit Test Coverage Report 
 
             - **Total Coverage:** ${{ env.COVERAGE }}%
             - **Total Tests:** ${{ env.total_tests }}
@@ -88,17 +90,20 @@ jobs:
             - **Skipped:** ${{ env.skipped }}
             - **Execution Time:** ${{ env.execution_time }} seconds
 
-      - name: Validate test failures
+      - name: Verificar falhas nos testes
         if: always() 
         run: |
           if [ ${{ env.failures }} -gt 0 ]; then
-              echo "Existem falhas nos testes: ${{ env.failures }}"
+              echo "⚠️ Existem falhas nos testes: ${{ env.failures }}"
               exit 1
           fi
 
+  # ------------------------- JOB 2: MERGE BACK HOTFIX -------------------------
   merge-back:
+    name: Merge Back Hotfix na Dev
     if: ${{ github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/') }}
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout do código
         uses: actions/checkout@v4
@@ -114,7 +119,7 @@ jobs:
           PR_URL=$(gh pr create \
             --base dev \
             --head master \
-            --title "Merge back hotfix para dev" \
+            --title "🚀 Merge back hotfix para dev" \
             --body "Sincronizando as correções da master para dev.")
           PR_NUMBER=$(echo $PR_URL | grep -oE '[0-9]+$')
           echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
@@ -129,9 +134,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
 
-      - name: Notificar no Slack (Erro)
+      - name: Notificar erro no Slack
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "Ocorreu um erro ao tentar mesclar o PR #${{ env.PR_NUMBER }} \n*Link:* ${{ env.PR_URL }}"
+            "text": "🚨 Ocorreu um erro ao tentar mesclar o PR #${{ env.PR_NUMBER }} \n*Link:* ${{ env.PR_URL }}"
           }' ${{ secrets.SLACK }}
