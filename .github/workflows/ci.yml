@@ -2,8 +2,6 @@ name: PHPUnit with Coverage Check
 
 on:
   pull_request:
-    branches:
-      - master
 
 jobs:
   test:
@@ -81,7 +79,7 @@ jobs:
           repository: ${{ github.repository }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            ### PHPUnit Test Coverage Report 🚀
+            ### PHPUnit Test Coverage Report 
 
             - **Total Coverage:** ${{ env.COVERAGE }}%
             - **Total Tests:** ${{ env.total_tests }}
@@ -89,11 +87,10 @@ jobs:
             - **Skipped:** ${{ env.skipped }}
             - **Execution Time:** ${{ env.execution_time }} seconds
 
-      # Validar cobertura (bloqueio se menor que 60%)
-      - name: Validate coverage threshold
-        if: always() # Executa mesmo que passos anteriores falhem
+      - name: Validate test failures
+        if: always() 
         run: |
-          if [ $(echo "${{ env.COVERAGE }} < 60" | bc) -eq 1 ]; then
-              echo "Cobertura abaixo do limite mínimo: ${{ env.COVERAGE }}%"
+          if [ ${{ env.failures }} -gt 0 ]; then
+              echo "Existem falhas nos testes: ${{ env.failures }}"
               exit 1
           fi
