@@ -2,10 +2,10 @@ name: CI/CD Workflow
 
 on:
   pull_request:
-  pull_request:
-    types: [closed]
+    types: [opened, synchronize, reopened, closed]
     branches:
       - master
+      - dev
 
 permissions:
   contents: write
@@ -14,6 +14,7 @@ permissions:
 jobs:
   # ------------------------- JOB 1: TESTES COM PHPUNIT -------------------------
   tests:
+    if: ${{ github.event.action != 'closed' }}  # Só roda se o PR não foi fechado
     name: Executar Testes e Verificar Cobertura
     runs-on: ubuntu-latest
 
@@ -50,7 +51,7 @@ jobs:
           echo "COVERAGE=$COVERAGE" >> $GITHUB_ENV
           echo "Cobertura calculada: $COVERAGE%"
 
-      - name: Processar resultados de junit.xml
+      - name: Analisar junit.xml para obter métricas
         id: parse_junit
         run: |
           TESTS=$(php -r "
@@ -90,19 +91,20 @@ jobs:
             - **Skipped:** ${{ env.skipped }}
             - **Execution Time:** ${{ env.execution_time }} seconds
 
-      - name: Verificar falhas nos testes
+      - name: Validar falhas nos testes
         if: always() 
         run: |
           if [ ${{ env.failures }} -gt 0 ]; then
-              echo "⚠️ Existem falhas nos testes: ${{ env.failures }}"
+              echo "❌ Existem falhas nos testes: ${{ env.failures }}"
               exit 1
           fi
 
   # ------------------------- JOB 2: MERGE BACK HOTFIX -------------------------
   merge-back:
-    name: Merge Back Hotfix na Dev
     if: ${{ github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/') }}
+    name: Merge Back para Dev
     runs-on: ubuntu-latest
+    needs: tests  # Só roda depois que os testes passam
 
     steps:
       - name: Checkout do código
@@ -119,7 +121,7 @@ jobs:
           PR_URL=$(gh pr create \
             --base dev \
             --head master \
-            --title "🚀 Merge back hotfix para dev" \
+            --title "Merge back hotfix para dev" \
             --body "Sincronizando as correções da master para dev.")
           PR_NUMBER=$(echo $PR_URL | grep -oE '[0-9]+$')
           echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
@@ -134,9 +136,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
 
-      - name: Notificar erro no Slack
+      - name: Notificar no Slack (Erro)
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "🚨 Ocorreu um erro ao tentar mesclar o PR #${{ env.PR_NUMBER }} \n*Link:* ${{ env.PR_URL }}"
+            "text": "❌ Ocorreu um erro ao tentar mesclar o PR #${{ env.PR_NUMBER }} \n*Link:* ${{ env.PR_URL }}"
           }' ${{ secrets.SLACK }}
