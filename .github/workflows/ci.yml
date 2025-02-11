@@ -2,9 +2,7 @@ name: Merge Back Hotfix and PHPUnit with Coverage Check
 
 on:
   pull_request:
-    types: [closed, opened, edited]  # Inclui os tipos de eventos necessários
-    branches:
-      - master  # Para o job de merge back, só se aplica ao branch master
+    types: [opened, edited, closed]  # Inclui os tipos de eventos necessários
 
 permissions:
   contents: write
@@ -12,6 +10,7 @@ permissions:
 
 jobs:
   test:
+    if: github.event.action != 'closed'  # Só roda o job de teste se a ação não for 'closed'
     runs-on: ubuntu-latest
 
     steps:
@@ -95,7 +94,7 @@ jobs:
               exit 1
 
   merge-back:
-    if: ${{ github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/') }}
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout do código
