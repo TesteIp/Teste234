@@ -12,10 +12,9 @@ permissions:
   pull-requests: write
 
 jobs:
-  # ------------------------- JOB 1: TESTES COM PHPUNIT -------------------------
   tests:
-    if: ${{ github.event.action != 'closed' }}  # Só roda se o PR não foi fechado
-    name: Executar Testes e Verificar Cobertura
+    if: ${{ github.event.action != 'closed' }}  
+    name: test
     runs-on: ubuntu-latest
 
     steps:
@@ -83,7 +82,7 @@ jobs:
           repository: ${{ github.repository }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            ### 🧪 PHPUnit Test Coverage Report 
+            ###  PHPUnit Test Coverage Report 
 
             - **Total Coverage:** ${{ env.COVERAGE }}%
             - **Total Tests:** ${{ env.total_tests }}
@@ -95,11 +94,10 @@ jobs:
         if: always() 
         run: |
           if [ ${{ env.failures }} -gt 0 ]; then
-              echo "❌ Existem falhas nos testes: ${{ env.failures }}"
+              echo " Existem falhas nos testes: ${{ env.failures }}"
               exit 1
           fi
 
-  # ------------------------- JOB 2: MERGE BACK HOTFIX -------------------------
   merge-back:
     if: ${{ github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/') }}
     name: Merge Back para Dev
