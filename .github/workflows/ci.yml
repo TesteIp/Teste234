@@ -2,10 +2,13 @@ name: Teste e Merge Back
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened, closed]  # Executar nos eventos de PR (aberta, sincronizada, reaberta e fechada)
+    branches:
+      - master  # Para garantir que a PR esteja destinada à branch master
+
   push:
     branches:
-      - master
+      - master  # Garantir que o teste de merge back só ocorra para a branch `master`
 
 permissions:
   contents: write
