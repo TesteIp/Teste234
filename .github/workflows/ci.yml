@@ -1,25 +1,24 @@
-name: CI/CD Workflow
+name: Teste e Marge Back
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened, closed]  
+  push:
     branches:
       - master
-      - dev
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
-  tests:
-    if: ${{ github.event.action != 'closed' }}  
-    name: test
+  test:
+    name: PHPUnit Tests
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout do código
-        uses: actions/checkout@v3
+      - name: Checkout código
+        uses: actions/checkout@v4
 
       - name: Configurar PHP
         uses: shivammathur/setup-php@v2
@@ -31,81 +30,38 @@ jobs:
         run: composer install
 
       - name: Executar PHPUnit com cobertura
+        id: run_tests
         run: |
           vendor/bin/phpunit --coverage-clover=coverage.xml --log-junit=junit.xml
+        continue-on-error: false 
 
-      - name: Extrair cobertura de código
-        id: coverage_check
-        run: |
-          COVERAGE=$(php -r "
-              libxml_use_internal_errors(true);
-              \$xml = simplexml_load_file('coverage.xml');
-              if (\$xml === false) {
-                  echo 'Erro ao carregar o arquivo coverage.xml';
-                  exit(1);
-              }
-              \$coverage = (\$xml->project->metrics['coveredelements'] / \$xml->project->metrics['elements']) * 100;
-              echo round(\$coverage, 2);
-          ")
-          echo "COVERAGE=$COVERAGE" >> $GITHUB_ENV
-          echo "Cobertura calculada: $COVERAGE%"
-
-      - name: Analisar junit.xml para obter métricas
-        id: parse_junit
-        run: |
-          TESTS=$(php -r "
-              \$xml = simplexml_load_file('junit.xml');
-              echo (int) \$xml->testsuite['tests'];
-          ")
-          FAILURES=$(php -r "
-              \$xml = simplexml_load_file('junit.xml');
-              echo (int) \$xml->testsuite['failures'];
-          ")
-          SKIPPED=$(php -r "
-              \$xml = simplexml_load_file('junit.xml');
-              echo (int) \$xml->testsuite['skipped'];
-          ")
-          TIME=$(php -r "
-              \$xml = simplexml_load_file('junit.xml');
-              echo (float) \$xml->testsuite['time'];
-          ")
-
-          echo "total_tests=$TESTS" >> $GITHUB_ENV
-          echo "failures=$FAILURES" >> $GITHUB_ENV
-          echo "skipped=$SKIPPED" >> $GITHUB_ENV
-          echo "execution_time=$TIME" >> $GITHUB_ENV
-
-      - name: Publicar resultados dos testes na PR
+      - name: Comentar resultado dos testes na PR
         uses: peter-evans/create-or-update-comment@v2
         with:
           token: ${{ secrets.PAT_TOKEN }}
           repository: ${{ github.repository }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            ###  PHPUnit Test Coverage Report 
-
-            - **Total Coverage:** ${{ env.COVERAGE }}%
-            - **Total Tests:** ${{ env.total_tests }}
-            - **Failures:** ${{ env.failures }}
-            - **Skipped:** ${{ env.skipped }}
-            - **Execution Time:** ${{ env.execution_time }} seconds
+            ### PHPUnit Test Report
+            - **Total de Testes:** ${{ env.total_tests }}
+            - **Falhas:** ${{ env.failures }}
 
       - name: Validar falhas nos testes
-        if: always() 
+        if: always()
         run: |
-          if [ ${{ env.failures }} -gt 0 ]; then
-              echo " Existem falhas nos testes: ${{ env.failures }}"
+          if [ "${{ env.failures }}" -gt 0 ]; then
+              echo " Testes falharam: ${{ env.failures }}"
               exit 1
           fi
 
   merge-back:
-    if: ${{ github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/') }}
-    name: Merge Back para Dev
+    name: Merge Back Hotfix para Dev
+    needs: test
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/')
     runs-on: ubuntu-latest
-    needs: tests  # Só roda depois que os testes passam
 
     steps:
-      - name: Checkout do código
+      - name: Checkout código
         uses: actions/checkout@v4
 
       - name: Configurar Git
@@ -113,14 +69,14 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-      - name: Criar Pull Request da master para dev
+      - name: Criar Pull Request da main para dev
         id: create_pr
         run: |
           PR_URL=$(gh pr create \
             --base dev \
             --head master \
             --title "Merge back hotfix para dev" \
-            --body "Sincronizando as correções da master para dev.")
+            --body "Sincronizando as correções da main para dev.")
           PR_NUMBER=$(echo $PR_URL | grep -oE '[0-9]+$')
           echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
           echo "PR_URL=$PR_URL" >> $GITHUB_ENV
@@ -134,9 +90,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
 
-      - name: Notificar no Slack (Erro)
+      - name: Notificar erro no Slack
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "❌ Ocorreu um erro ao tentar mesclar o PR #${{ env.PR_NUMBER }} \n*Link:* ${{ env.PR_URL }}"
+            "text": " Erro ao mesclar PR #${{ env.PR_NUMBER }} \n*Link:* ${{ env.PR_URL }}"
           }' ${{ secrets.SLACK }}
