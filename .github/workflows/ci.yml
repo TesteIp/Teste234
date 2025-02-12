@@ -84,7 +84,7 @@ jobs:
           repository: ${{ github.repository }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            ### PHPUnit Test Coverage Report 🚀
+            ### PHPUnit Test Coverage Report 
 
             - **Total Coverage:** ${{ env.COVERAGE }}%
             - **Total Tests:** ${{ env.total_tests }}
@@ -103,7 +103,7 @@ jobs:
   merge-back:
     name: Merge Back Hotfix para Dev
     needs: test
-    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/')
+    if:  github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/') && github.event.pull_request.head.ref == 'master'
     runs-on: ubuntu-latest
 
     steps:
