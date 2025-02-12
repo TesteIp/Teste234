@@ -2,13 +2,10 @@ name: Teste e Merge Back
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]  # Executar nos eventos de PR (aberta, sincronizada, reaberta e fechada)
-    branches:
-      - master  # Para garantir que a PR esteja destinada à branch master
-
+    types: [opened, synchronize, reopened, closed]
   push:
     branches:
-      - master  # Garantir que o teste de merge back só ocorra para a branch `master`
+      - master
 
 permissions:
   contents: write
@@ -36,9 +33,54 @@ jobs:
         id: run_tests
         run: |
           vendor/bin/phpunit --coverage-clover=coverage.xml --log-junit=junit.xml
-        continue-on-error: false
+        continue-on-error: false 
 
+        # Extrair cobertura do arquivo coverage.xml
+      - name: Extract coverage
+        id: coverage_check
+        run: |
+          COVERAGE=$(php -r "
+              libxml_use_internal_errors(true);
+              \$xml = simplexml_load_file('coverage.xml');
+              if (\$xml === false) {
+                  echo 'Erro ao carregar o arquivo coverage.xml';
+                  exit(1);
+              }
+              \$coverage = (\$xml->project->metrics['coveredelements'] / \$xml->project->metrics['elements']) * 100;
+              echo round(\$coverage, 2);
+          ")
+          echo "COVERAGE=$COVERAGE" >> $GITHUB_ENV
+          echo "Cobertura calculada: $COVERAGE%"
+
+      # Parse junit.xml para obter dados adicionais
+      - name: Parse junit.xml
+        id: parse_junit
+        run: |
+          TESTS=$(php -r "
+              \$xml = simplexml_load_file('junit.xml');
+              echo (int) \$xml->testsuite['tests'];
+          ")
+          FAILURES=$(php -r "
+              \$xml = simplexml_load_file('junit.xml');
+              echo (int) \$xml->testsuite['failures'];
+          ")
+          SKIPPED=$(php -r "
+              \$xml = simplexml_load_file('junit.xml');
+              echo (int) \$xml->testsuite['skipped'];
+          ")
+          TIME=$(php -r "
+              \$xml = simplexml_load_file('junit.xml');
+              echo (float) \$xml->testsuite['time'];
+          ")
+
+          echo "total_tests=$TESTS" >> $GITHUB_ENV
+          echo "failures=$FAILURES" >> $GITHUB_ENV
+          echo "skipped=$SKIPPED" >> $GITHUB_ENV
+          echo "execution_time=$TIME" >> $GITHUB_ENV
+
+      # Comentar resultados na PR
       - name: Post test results
+        if: github.event.pull_request
         uses: peter-evans/create-or-update-comment@v2
         with:
           token: ${{ secrets.PAT_TOKEN }}
@@ -63,10 +105,9 @@ jobs:
 
   merge-back:
     name: Merge Back Hotfix para Dev
+    needs: test
     if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/')
-    needs: test  # Garante que o job de merge back só será executado depois do teste
     runs-on: ubuntu-latest
-    if: github.event.pull_request.base.ref == 'master'  # Somente se a PR for para a master
 
     steps:
       - name: Checkout código
@@ -77,14 +118,14 @@ jobs:
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
 
-      - name: Criar Pull Request da master para dev
+      - name: Criar Pull Request da main para dev
         id: create_pr
         run: |
           PR_URL=$(gh pr create \
             --base dev \
             --head master \
             --title "Merge back hotfix para dev" \
-            --body "Sincronizando as correções da master para dev.")
+            --body "Sincronizando as correções da main para dev.")
           PR_NUMBER=$(echo $PR_URL | grep -oE '[0-9]+$')
           echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
           echo "PR_URL=$PR_URL" >> $GITHUB_ENV
@@ -102,5 +143,5 @@ jobs:
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "Erro ao mesclar PR #${{ env.PR_NUMBER }} \n*Link:* ${{ env.PR_URL }}"
+            "text": " Erro ao mesclar PR #${{ env.PR_NUMBER }} \n*Link:* ${{ env.PR_URL }}"
           }' ${{ secrets.SLACK }}
