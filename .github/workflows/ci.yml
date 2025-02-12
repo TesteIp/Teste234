@@ -35,7 +35,6 @@ jobs:
           vendor/bin/phpunit --coverage-clover=coverage.xml --log-junit=junit.xml
         continue-on-error: false 
 
-      - Comentar resultados na PR
       - name: Post test results
         uses: peter-evans/create-or-update-comment@v2
         with:
