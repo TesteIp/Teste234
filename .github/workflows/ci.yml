@@ -80,7 +80,7 @@ jobs:
 
       # Comentar resultados na PR
       - name: Post test results
-        if: github.event_name == 'pull_request' 
+        if: github.event.pull_request
         uses: peter-evans/create-or-update-comment@v2
         with:
           token: ${{ secrets.PAT_TOKEN }}
