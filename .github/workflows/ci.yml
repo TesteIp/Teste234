@@ -1,11 +1,11 @@
-name: Unified Workflow
+name: Teste e Marge Back
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]  # 🔹 Inclui o Merge Back no mesmo bloco
+    types: [opened, synchronize, reopened, closed]  
   push:
     branches:
-      - main
+      - master
 
 permissions:
   contents: write
@@ -33,7 +33,7 @@ jobs:
         id: run_tests
         run: |
           vendor/bin/phpunit --coverage-clover=coverage.xml --log-junit=junit.xml
-        continue-on-error: false # 🔴 Bloqueia o merge se falhar
+        continue-on-error: false 
 
       - name: Comentar resultado dos testes na PR
         uses: peter-evans/create-or-update-comment@v2
@@ -50,7 +50,7 @@ jobs:
         if: always()
         run: |
           if [ "${{ env.failures }}" -gt 0 ]; then
-              echo "❌ Testes falharam: ${{ env.failures }}"
+              echo " Testes falharam: ${{ env.failures }}"
               exit 1
           fi
 
@@ -74,7 +74,7 @@ jobs:
         run: |
           PR_URL=$(gh pr create \
             --base dev \
-            --head main \
+            --head master \
             --title "Merge back hotfix para dev" \
             --body "Sincronizando as correções da main para dev.")
           PR_NUMBER=$(echo $PR_URL | grep -oE '[0-9]+$')
@@ -94,5 +94,5 @@ jobs:
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' --data '{
-            "text": "❌ Erro ao mesclar PR #${{ env.PR_NUMBER }} \n*Link:* ${{ env.PR_URL }}"
+            "text": " Erro ao mesclar PR #${{ env.PR_NUMBER }} \n*Link:* ${{ env.PR_URL }}"
           }' ${{ secrets.SLACK }}
