@@ -34,7 +34,7 @@ jobs:
           echo "WWWGROUP=1000" >> .env
           echo "THREAT_METRIX_ORG_ID=" >> .env
           echo "DB_CONNECTION=sqlsrv" >> .env
-          echo "DB_HOST=sqlserver" >> .env
+          echo "DB_HOST=localhost" >> .env
           echo "DB_PORT=1433" >> .env
           echo "DB_DATABASE=test_db" >> .env
           echo "DB_USERNAME=sa" >> .env
@@ -46,18 +46,27 @@ jobs:
       - name: Run SQL Server in Docker
         run: |
           docker run -e 'ACCEPT_EULA=Y' -e 'MSSQL_SA_PASSWORD=${{ secrets.MSSQL_SA_PASSWORD }}' -p 1433:1433 --name sqlserver --restart unless-stopped -d mcr.microsoft.com/mssql/server:2022-latest
+          echo "SQL Server está sendo iniciado... aguardando 30 segundos para inicializar."
 
       - name: Wait for SQL Server to be ready
         run: |
-          until docker exec sqlserver /opt/mssql-tools/bin/sqlcmd -U sa -P ${{ secrets.MSSQL_SA_PASSWORD }} -Q "SELECT 1" > /dev/null 2>&1; do
-            echo "Aguardando SQL Server iniciar..."
+          # Aguardar até 4 minutos para o SQL Server iniciar
+          for i in {1..24}; do
+            echo "Tentando conectar ao SQL Server... Tentativa $i/24"
+            if docker exec sqlserver /opt/mssql-tools/bin/sqlcmd -U sa -P ${{ secrets.MSSQL_SA_PASSWORD }} -Q "SELECT 1" > /dev/null 2>&1; then
+              echo "SQL Server iniciado!"
+              break
+            fi
             sleep 10
           done
-          echo "SQL Server iniciado!"
+          if [ $i -eq 24 ]; then
+            echo "Erro: SQL Server não respondeu após 4 minutos."
+            exit 1
+          fi
 
       - name: Create Database
         run: |
-          docker exec sqlserver /opt/mssql-tools/bin/sqlcmd -U sa -P ${{ secrets.MSSQL_SA_PASSWORD }} -Q "IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'test_db') CREATE DATABASE test_db"
+          docker exec sqlserver /opt/mssql-tools/bin/sqlcmd -U sa -P ${{ secrets.MSSQL_SA_PASSWORD }} -Q "CREATE DATABASE test_db"
 
       - name: Generate key
         run: php artisan key:generate
@@ -67,7 +76,7 @@ jobs:
 
       - name: Run migration
         run: php artisan migrate:fresh --seed
-        
+
       - name: Run PHPUnit tests with coverage
         run: |
           vendor/bin/phpunit --coverage-clover=coverage.xml --log-junit=junit.xml
