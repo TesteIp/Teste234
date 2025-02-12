@@ -14,7 +14,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: xdebug, pdo_sqlsrv, sqlsrv
+          extensions: xdebug, pdo_mysql
 
       - name: Make Environment Variables in .env
         run: |
@@ -33,40 +33,40 @@ jobs:
           echo "WWWUSER=1000" >> .env
           echo "WWWGROUP=1000" >> .env
           echo "THREAT_METRIX_ORG_ID=" >> .env
-          echo "DB_CONNECTION=sqlsrv" >> .env
+          echo "DB_CONNECTION=mysql" >> .env
           echo "DB_HOST=localhost" >> .env
-          echo "DB_PORT=1433" >> .env
+          echo "DB_PORT=3306" >> .env
           echo "DB_DATABASE=test_db" >> .env
-          echo "DB_USERNAME=sa" >> .env
-          echo "DB_PASSWORD=${{ secrets.MSSQL_SA_PASSWORD }}" >> .env
+          echo "DB_USERNAME=root" >> .env
+          echo "DB_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}" >> .env
 
       - name: Install Dependencies
         run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
 
-      - name: Run SQL Server in Docker
+      - name: Run MySQL in Docker
         run: |
-          docker run -e 'ACCEPT_EULA=Y' -e 'MSSQL_SA_PASSWORD=${{ secrets.MSSQL_SA_PASSWORD }}' -p 1433:1433 --name sqlserver --restart unless-stopped -d mcr.microsoft.com/mssql/server:2022-latest
-          echo "SQL Server está sendo iniciado... aguardando 30 segundos para inicializar."
+          docker run --name mysql-container -e MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }} -e MYSQL_DATABASE=test_db -p 3306:3306 -d mysql:8.0
+          echo "MySQL está sendo iniciado... aguardando 30 segundos para inicializar."
 
-      - name: Wait for SQL Server to be ready
+      - name: Wait for MySQL to be ready
         run: |
-          # Aguardar até 4 minutos para o SQL Server iniciar
           for i in {1..24}; do
-            echo "Tentando conectar ao SQL Server... Tentativa $i/24"
-            if docker exec sqlserver /opt/mssql-tools/bin/sqlcmd -U sa -P ${{ secrets.MSSQL_SA_PASSWORD }} -Q "SELECT 1" > /dev/null 2>&1; then
-              echo "SQL Server iniciado!"
+            echo "Tentando conectar ao MySQL... Tentativa $i/24"
+            if docker exec mysql-container mysql -u root -p${{ secrets.MYSQL_ROOT_PASSWORD }} -e "SELECT 1" > /dev/null 2>&1; then
+              echo "MySQL iniciado!"
               break
             fi
             sleep 10
           done
           if [ $i -eq 24 ]; then
-            echo "Erro: SQL Server não respondeu após 4 minutos."
+            echo "Erro: MySQL não respondeu após 4 minutos."
+            docker logs mysql-container
             exit 1
           fi
 
       - name: Create Database
         run: |
-          docker exec sqlserver /opt/mssql-tools/bin/sqlcmd -U sa -P ${{ secrets.MSSQL_SA_PASSWORD }} -Q "CREATE DATABASE test_db"
+          docker exec mysql-container mysql -u root -p${{ secrets.MYSQL_ROOT_PASSWORD }} -e "CREATE DATABASE IF NOT EXISTS test_db"
 
       - name: Generate key
         run: php artisan key:generate
