@@ -35,16 +35,21 @@ jobs:
           vendor/bin/phpunit --coverage-clover=coverage.xml --log-junit=junit.xml
         continue-on-error: false 
 
-      - name: Comentar resultado dos testes na PR
+      - Comentar resultados na PR
+      - name: Post test results
         uses: peter-evans/create-or-update-comment@v2
         with:
           token: ${{ secrets.PAT_TOKEN }}
           repository: ${{ github.repository }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            ### PHPUnit Test Report
-            - **Total de Testes:** ${{ env.total_tests }}
-            - **Falhas:** ${{ env.failures }}
+            ### PHPUnit Test Coverage Report 🚀
+
+            - **Total Coverage:** ${{ env.COVERAGE }}%
+            - **Total Tests:** ${{ env.total_tests }}
+            - **Failures:** ${{ env.failures }}
+            - **Skipped:** ${{ env.skipped }}
+            - **Execution Time:** ${{ env.execution_time }} seconds
 
       - name: Validar falhas nos testes
         if: always()
