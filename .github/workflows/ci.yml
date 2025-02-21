@@ -4,9 +4,11 @@ on:
   pull_request:
 
 jobs:
-  tests:
+  Docker:
     runs-on: ubuntu-latest
-
+    env:
+      DB_DATABASE: "digitalAccountTest"
+      MSSQL_SA_PASSWORD: "4Dm1n@GitHub2024!"
     steps:
       - uses: actions/checkout@v4
 
@@ -14,74 +16,37 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: xdebug, pdo_mysql
+          extensions: xdebug, pdo_sqlsrv, sqlsrv
 
-      - name: Make Environment Variables in .env
-        run: |
-          echo "APP_NAME=ContaDigitalDinariFront" >> .env
-          echo "APP_ENV=local" >> .env
-          echo "APP_KEY=" >> .env
-          echo "APP_DEBUG=true" >> .env
-          echo "APP_PORT=8000" >> .env
-          echo "APP_URL=http://localhost:8000" >> .env
-          echo "ENDPOINT_TO_BACK=http://localhost:8001/api/" >> .env
-          echo "LOG_CHANNEL=stack" >> .env
-          echo "LOG_LEVEL=debug" >> .env
-          echo "GOOGLE_RECAPTCHA_KEY=6Lei3ekUAAAAAEGpq-8PD7_5FF1i69cJmg04qFwG" >> .env
-          echo "SAIL_XDEBUG_MODE=develop,debug" >> .env
-          echo "SAIL_XDEBUG_CONFIG='start_with_request=yes client_host=host.docker.internal idekey=VSCODE log_level=0'" >> .env
-          echo "WWWUSER=1000" >> .env
-          echo "WWWGROUP=1000" >> .env
-          echo "THREAT_METRIX_ORG_ID=" >> .env
-          echo "DB_CONNECTION=mysql" >> .env
-          echo "DB_HOST=localhost" >> .env
-          echo "DB_PORT=3306" >> .env
-          echo "DB_DATABASE=test_db" >> .env
-          echo "DB_USERNAME=root" >> .env
-          echo "DB_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}" >> .env
+      - name: Copy .env
+        run: php -r "file_exists('.env') || copy('.env.testing.example', '.env');"
 
+      - name: Docker Compose
+        run: docker compose up -d 
+
+  Build:
+    needs: Docker
+    runs-on: ubuntu-latest
+    steps:
       - name: Install Dependencies
-        run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
-
-      - name: Run MySQL in Docker
-        run: |
-          docker run --name mysql-container -e MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }} -e MYSQL_DATABASE=test_db -p 3306:3306 -d mysql:8.0
-          echo "MySQL está sendo iniciado... aguardando 30 segundos para inicializar."
-
-      - name: Wait for MySQL to be ready
-        run: |
-          for i in {1..24}; do
-            echo "Tentando conectar ao MySQL... Tentativa $i/24"
-            if docker exec mysql-container mysql -u root -p${{ secrets.MYSQL_ROOT_PASSWORD }} -e "SELECT 1" > /dev/null 2>&1; then
-              echo "MySQL iniciado!"
-              break
-            fi
-            sleep 10
-          done
-          if [ $i -eq 24 ]; then
-            echo "Erro: MySQL não respondeu após 4 minutos."
-            docker logs mysql-container
-            exit 1
-          fi
+        run: docker exec app_back composer install --no-interaction --prefer-dist
 
       - name: Create Database
-        run: |
-          docker exec mysql-container mysql -u root -p${{ secrets.MYSQL_ROOT_PASSWORD }} -e "CREATE DATABASE IF NOT EXISTS test_db"
+        run: docker exec db-backend /opt/mssql-tools18/bin/sqlcmd -U sa -P ${{ env.MSSQL_SA_PASSWORD }} -Q "CREATE DATABASE ${{ env.DB_DATABASE }}"
 
       - name: Generate key
-        run: php artisan key:generate
-
-      - name: Directory Permissions
-        run: chmod -R 777 storage bootstrap/cache
+        run: docker exec app_back php artisan key:generate
 
       - name: Run migration
-        run: php artisan migrate:fresh --seed
+        run: docker exec app_back php artisan migrate
 
+  Tests:
+    needs: Build
+    runs-on: ubuntu-latest
+    steps:
       - name: Run PHPUnit tests with coverage
-        run: |
-          vendor/bin/phpunit --coverage-clover=coverage.xml --log-junit=junit.xml
+        run: docker exec app_back vendor/bin/phpunit --coverage-clover=coverage.xml --log-junit=junit.xml
 
-      # Extrair cobertura do arquivo coverage.xml
       - name: Extract coverage
         id: coverage_check
         run: |
@@ -98,7 +63,6 @@ jobs:
           echo "COVERAGE=$COVERAGE" >> $GITHUB_ENV
           echo "Cobertura calculada: $COVERAGE%"
 
-      # Parse junit.xml para obter dados adicionais
       - name: Parse junit.xml
         id: parse_junit
         run: |
@@ -118,13 +82,11 @@ jobs:
               \$xml = simplexml_load_file('junit.xml');
               echo (float) \$xml->testsuite['time'];
           ")
-
           echo "total_tests=$TESTS" >> $GITHUB_ENV
           echo "failures=$FAILURES" >> $GITHUB_ENV
           echo "skipped=$SKIPPED" >> $GITHUB_ENV
           echo "execution_time=$TIME" >> $GITHUB_ENV
 
-      # Comentar resultados na PR
       - name: Post test results
         uses: peter-evans/create-or-update-comment@v2
         with:
@@ -133,7 +95,6 @@ jobs:
           issue-number: ${{ github.event.pull_request.number }}
           body: |
             ### PHPUnit Test Coverage Report 
-
             - **Total Coverage:** ${{ env.COVERAGE }}%
             - **Total Tests:** ${{ env.total_tests }}
             - **Failures:** ${{ env.failures }}
@@ -141,9 +102,9 @@ jobs:
             - **Execution Time:** ${{ env.execution_time }} seconds
 
       - name: Validate test failures
-        if: always() 
+        if: always()
         run: |
           if [ ${{ env.failures }} -gt 0 ]; then
               echo "Existem falhas nos testes: ${{ env.failures }}"
               exit 1
-          fi
+          fi 
