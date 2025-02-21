@@ -1,38 +1,52 @@
-name: Teste e Merge Back
+name: Pipeline
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
-
-permissions:
-  contents: write
-  pull-requests: write
 
 jobs:
-  test:
-    name: PHPUnit Tests
+  Docker:
     runs-on: ubuntu-latest
-
+    env:
+      DB_DATABASE: "digitalAccountTest"
+      MSSQL_SA_PASSWORD: "4Dm1n@GitHub2024!"
     steps:
-      - name: Checkout código
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configurar PHP
+      - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: xdebug
+          extensions: xdebug, pdo_sqlsrv, sqlsrv
 
-      - name: Instalar dependências do Composer
-        run: composer install
+      - name: Copy .env
+        run: php -r "file_exists('.env') || copy('.env.testing.example', '.env');"
 
-      - name: Executar PHPUnit com cobertura
-        id: run_tests
-        run: |
-          vendor/bin/phpunit --coverage-clover=coverage.xml --log-junit=junit.xml
-        continue-on-error: false 
+      - name: Docker Compose
+        run: docker compose up -d 
 
-        # Extrair cobertura do arquivo coverage.xml
+  Build:
+    needs: Docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Dependencies
+        run: docker exec app_back composer install --no-interaction --prefer-dist
+
+      - name: Create Database
+        run: docker exec db-backend /opt/mssql-tools18/bin/sqlcmd -U sa -P ${{ env.MSSQL_SA_PASSWORD }} -Q "CREATE DATABASE ${{ env.DB_DATABASE }}"
+
+      - name: Generate key
+        run: docker exec app_back php artisan key:generate
+
+      - name: Run migration
+        run: docker exec app_back php artisan migrate
+
+  Tests:
+    needs: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run PHPUnit tests with coverage
+        run: docker exec app_back vendor/bin/phpunit --coverage-clover=coverage.xml --log-junit=junit.xml
+
       - name: Extract coverage
         id: coverage_check
         run: |
@@ -49,7 +63,6 @@ jobs:
           echo "COVERAGE=$COVERAGE" >> $GITHUB_ENV
           echo "Cobertura calculada: $COVERAGE%"
 
-      # Parse junit.xml para obter dados adicionais
       - name: Parse junit.xml
         id: parse_junit
         run: |
@@ -69,76 +82,29 @@ jobs:
               \$xml = simplexml_load_file('junit.xml');
               echo (float) \$xml->testsuite['time'];
           ")
-
           echo "total_tests=$TESTS" >> $GITHUB_ENV
           echo "failures=$FAILURES" >> $GITHUB_ENV
           echo "skipped=$SKIPPED" >> $GITHUB_ENV
           echo "execution_time=$TIME" >> $GITHUB_ENV
 
-      # Comentar resultados na PR
       - name: Post test results
-        if: github.event.pull_request
         uses: peter-evans/create-or-update-comment@v2
         with:
           token: ${{ secrets.PAT_TOKEN }}
           repository: ${{ github.repository }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            ### PHPUnit Test Coverage Report 🚀
-
+            ### PHPUnit Test Coverage Report 
             - **Total Coverage:** ${{ env.COVERAGE }}%
             - **Total Tests:** ${{ env.total_tests }}
             - **Failures:** ${{ env.failures }}
             - **Skipped:** ${{ env.skipped }}
             - **Execution Time:** ${{ env.execution_time }} seconds
 
-      - name: Validar falhas nos testes
+      - name: Validate test failures
         if: always()
         run: |
-          if [ "${{ env.failures }}" -gt 0 ]; then
-              echo " Testes falharam: ${{ env.failures }}"
+          if [ ${{ env.failures }} -gt 0 ]; then
+              echo "Existem falhas nos testes: ${{ env.failures }}"
               exit 1
-          fi
-
-  merge-back:
-    name: Merge Back Hotfix para Dev
-    needs: test
-    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'hotfix/')
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout código
-        uses: actions/checkout@v4
-
-      - name: Configurar Git
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-
-      - name: Criar Pull Request da main para dev
-        id: create_pr
-        run: |
-          PR_URL=$(gh pr create \
-            --base dev \
-            --head master \
-            --title "Merge back hotfix para dev" \
-            --body "Sincronizando as correções da main para dev.")
-          PR_NUMBER=$(echo $PR_URL | grep -oE '[0-9]+$')
-          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
-          echo "PR_URL=$PR_URL" >> $GITHUB_ENV
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-
-      - name: Mesclar PR automaticamente (Squash)
-        if: env.PR_NUMBER != ''
-        run: |
-          gh pr merge $PR_NUMBER --squash
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-
-      - name: Notificar erro no Slack
-        if: failure()
-        run: |
-          curl -X POST -H 'Content-type: application/json' --data '{
-            "text": " Erro ao mesclar PR #${{ env.PR_NUMBER }} \n*Link:* ${{ env.PR_URL }}"
-          }' ${{ secrets.SLACK }}
+          fi 
